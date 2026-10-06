@@ -1,5 +1,5 @@
 use std::{
-    ffi::CStr,
+    ffi::{CStr, CString},
     fs::{File, OpenOptions},
     os::fd::AsRawFd,
 };
@@ -32,20 +32,29 @@ fn open_pts(ptm: &File) -> Result<File, std::io::Error> {
 }
 
 fn main() {
-    // open the PTM
     let ptm = open_ptm().unwrap();
     let pts = open_pts(&ptm).unwrap();
+    let shell = std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/bin/sh".into());
+    let shell = CString::new(shell).unwrap();
+    let shell_path = shell.as_ptr();
+    let argv = [shell_path, std::ptr::null()];
 
     match unsafe { libc::fork() } {
         0 => {
             // set up PTY and exec
-            unsafe {libc::_exit(0)}
+            unsafe { libc::execv(shell_path, argv.as_ptr()) };
+            // unsafe { libc::_exit(0) };
         }
         child_pid => {
             println!("Child created with pid {child_pid}");
             // close pts fd
             std::mem::drop(pts);
             
+            std::thread::sleep(std::time::Duration::new(3, 0));
+
             // start up the emulator
         }
     }
