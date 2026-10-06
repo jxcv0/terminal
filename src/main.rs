@@ -3,6 +3,10 @@ use std::{
     fs::{File, OpenOptions},
     os::fd::AsRawFd,
 };
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::window::{Window, WindowId};
 
 const PTMX_PATH: &str = "/dev/ptmx";
 
@@ -45,17 +49,53 @@ fn main() {
     match unsafe { libc::fork() } {
         0 => {
             // set up PTY and exec
+            let pid = unsafe { libc::setsid() };
+            if -1 == pid {
+                panic!("{}", std::io::Error::last_os_error());
+            }
+            let _ = unsafe { libc::ioctl(pts.as_raw_fd(), libc::TIOCSCTTY) };
             unsafe { libc::execv(shell_path, argv.as_ptr()) };
-            // unsafe { libc::_exit(0) };
         }
-        child_pid => {
-            println!("Child created with pid {child_pid}");
+        -1 => unsafe { libc::_exit(127) },
+        _child_pid => {
             // close pts fd
             std::mem::drop(pts);
-            
-            std::thread::sleep(std::time::Duration::new(3, 0));
 
-            // start up the emulator
+            run_emulator();
         }
     }
+}
+
+struct App {
+    window: Option<Window>,
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.window = Some(
+            event_loop
+                .create_window(Window::default_attributes())
+                .unwrap(),
+        );
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => {
+                println!("The close button was pressed; stopping");
+                event_loop.exit();
+            }
+            WindowEvent::RedrawRequested => {
+                self.window.as_ref().unwrap().request_redraw();
+            }
+            _ => (),
+        }
+    }
+}
+
+fn run_emulator() {
+    let event_loop = EventLoop::new().unwrap();
+    event_loop.set_control_flow(ControlFlow::Wait);
+    let mut app = App { window: None };
+    event_loop.run_app(&mut app).unwrap();
 }
