@@ -54,6 +54,13 @@ fn main() {
                 panic!("{}", std::io::Error::last_os_error());
             }
             let _ = unsafe { libc::ioctl(pts.as_raw_fd(), libc::TIOCSCTTY) };
+            std::mem::drop(ptm);
+            for fd in [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO] {
+                if -1 == unsafe { libc::dup2(pts.as_raw_fd(), fd) } {
+                    unsafe { libc::_exit(127) };
+                }
+            }
+            std::mem::drop(pts);
             unsafe { libc::execv(shell_path, argv.as_ptr()) };
         }
         -1 => unsafe { libc::_exit(127) },
