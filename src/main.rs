@@ -36,6 +36,17 @@ fn main() {
     let ptm = open_ptm().unwrap();
     let pts = open_pts(&ptm).unwrap();
 
-    // get the fd of the PTS
-    dbg!(&ptm, &pts);
+    match unsafe { libc::fork() } {
+        0 => {
+            // set up PTY and exec
+            unsafe {libc::_exit(0)}
+        }
+        child_pid => {
+            println!("Child created with pid {child_pid}");
+            // close pts fd
+            std::mem::drop(pts);
+            
+            // start up the emulator
+        }
+    }
 }
