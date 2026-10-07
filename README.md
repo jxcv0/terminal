@@ -2,7 +2,8 @@
 
 A Linux terminal emulator using winit, egui and wgpu's Vulkan backend. The shell
 is forked before window/graphics initialization. `vt100` owns terminal parsing,
-the grid, cursor, modes and a 10,000-line scrollback buffer independently of egui.
+the grid, cursor, modes and a configurable scrollback buffer (10,000 lines by
+default) independently of egui.
 
 ## Run
 
@@ -40,6 +41,54 @@ events have one terminal focus owner; egui's translated text/clipboard events
 are not sent a second time. Tab stays in the terminal. Selection is cleared by
 output, scrolling or resizing because its coordinates refer to visible cells.
 
+## Configuration
+
+Settings are read at startup from `$XDG_CONFIG_HOME/terminal/config.toml`, or
+`~/.config/terminal/config.toml` when `XDG_CONFIG_HOME` is unset, empty or
+relative. A missing file uses the built-in defaults. Every setting is optional;
+restart the terminal to apply changes. Both normal and `--demo` mode use it.
+
+Copy [config.example.toml](config.example.toml) to that location for the full
+list of settings, defaults and accepted ranges. For the standard location:
+
+```sh
+mkdir -p ~/.config/terminal
+cp -n config.example.toml ~/.config/terminal/config.toml
+```
+
+For example:
+
+```toml
+scrollback_lines = 20000
+cursor_blink_ms = 0 # Steady cursor; otherwise milliseconds between blinks.
+
+[font]
+size = 18.0
+# file = "/absolute/path/to/your/monospace-font.ttf"
+
+[window]
+width = 1000
+height = 700
+padding = 10
+
+[colors]
+foreground = "#dde1e7"
+background = "#14171c"
+selection = "#364c6a"
+```
+
+Font size is in logical points; window size and padding are in logical pixels
+and follow display scaling. `font.file` accepts a TTF/OTF file, using an absolute
+path or a path relative to the config directory. Paths do not expand `~` or
+environment variables. Choose a monospace font; embedded DejaVu Sans Mono and
+Droid Sans Fallback remain available for missing glyphs. Omitting `font.file`
+keeps the embedded primary font. The foreground color also colors the cursor;
+selection colors also apply to the IME overlay. ANSI and application-specified
+colors continue to work normally.
+
+Malformed TOML, unknown settings, invalid values and unreadable or invalid font
+files produce an error naming the config file before a shell is started.
+
 ## Implementation
 
 - `src/model.rs`: parser, modes, selection/copy, scrollback, terminal replies
@@ -55,7 +104,9 @@ output, scrolling or resizing because its coordinates refer to visible cells.
   submission/presentation, deferred texture frees and optional GPU timing.
 - `src/app.rs` and `src/input.rs`: input ownership/encoding, PTY resize,
   redraw scheduling and child-exit coordination. Idle operation uses `Wait`
-  or `WaitUntil`; a focused visible cursor blinks every 500 ms.
+  or `WaitUntil`; a focused visible cursor blinks every 500 ms by default.
+- `src/config.rs`: XDG config discovery, TOML parsing, validation and custom font
+  loading before shell startup.
 
 Zero-sized surfaces are skipped, lost/outdated surfaces are reconfigured and
 transient acquisition timeouts are retried later. Small viewports clip a

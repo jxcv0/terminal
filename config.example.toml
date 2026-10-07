@@ -1,0 +1,20 @@
+# Copy to $XDG_CONFIG_HOME/terminal/config.toml, or ~/.config/terminal/config.toml.
+# All settings are optional. Restart the terminal after editing this file.
+scrollback_lines = 10000 # 0 disables history; maximum 1000000.
+cursor_blink_ms = 500   # 0 keeps the cursor steady; maximum 60000.
+
+[font]
+size = 16.0 # Logical points, from 4 to 96.
+# Optional TTF/OTF file. Use a monospace font; embedded fonts remain fallbacks.
+# Absolute paths or paths relative to this config's directory are supported.
+# file = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+
+[window]
+width = 816  # Initial inner width in logical pixels, from 64 to 16384.
+height = 592 # Initial inner height in logical pixels, from 64 to 16384.
+padding = 8 # Logical pixels around the grid, from 0 to 64.
+
+[colors]
+foreground = "#dde1e7" # Also used for the block cursor.
+background = "#14171c"
+selection = "#364c6a"  # Also used for the IME overlay.

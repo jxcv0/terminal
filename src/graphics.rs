@@ -31,6 +31,7 @@ impl Graphics {
         window: Arc<Window>,
         proxy: EventLoopProxy<UserEvent>,
         profile: bool,
+        font: &crate::config::Font,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN,
@@ -84,7 +85,7 @@ impl Graphics {
             surface.configure(&device, &config);
         }
         let context = egui::Context::default();
-        crate::view::install_fonts(&context);
+        crate::view::install_fonts(&context, font);
         context.options_mut(|options| options.zoom_with_keyboard = false);
         context.set_request_repaint_callback(move |request| {
             if let Some(deadline) = Instant::now().checked_add(request.delay) {

@@ -11,6 +11,7 @@ use std::{
 use winit::event_loop::{ControlFlow, EventLoop};
 
 mod app;
+mod config;
 mod graphics;
 mod input;
 mod model;
@@ -73,8 +74,12 @@ fn main() {
             }
         }
     }
+    let config = config::Config::load().unwrap_or_else(|error| {
+        eprintln!("Configuration error: {error}");
+        std::process::exit(2);
+    });
     if demo {
-        run_emulator(None, None, profile);
+        run_emulator(None, None, profile, config);
         return;
     }
     let ptm = open_ptm().unwrap();
@@ -133,7 +138,7 @@ fn main() {
             std::mem::drop(pts);
             std::mem::drop(stderr);
 
-            run_emulator(Some(ptm), Some(child_pid), profile);
+            run_emulator(Some(ptm), Some(child_pid), profile, config);
         }
     }
 }
@@ -151,7 +156,12 @@ fn wait_for_child(child_pid: libc::pid_t) -> std::io::Result<ExitStatus> {
     }
 }
 
-fn run_emulator(ptm: Option<File>, child_pid: Option<libc::pid_t>, profile: bool) {
+fn run_emulator(
+    ptm: Option<File>,
+    child_pid: Option<libc::pid_t>,
+    profile: bool,
+    config: config::Config,
+) {
     let event_loop = EventLoop::with_user_event().build().unwrap();
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
@@ -162,7 +172,7 @@ fn run_emulator(ptm: Option<File>, child_pid: Option<libc::pid_t>, profile: bool
         });
     }
     let pty = ptm.map(|ptm| pty::Pty::new(ptm, proxy.clone()).unwrap());
-    let mut app = app::App::new(pty, proxy, profile);
+    let mut app = app::App::new(pty, proxy, profile, config);
     event_loop.run_app(&mut app).unwrap();
 }
 

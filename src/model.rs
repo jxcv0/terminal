@@ -55,12 +55,12 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    pub fn new(rows: u16, cols: u16) -> Self {
+    pub fn new(rows: u16, cols: u16, scrollback_lines: usize) -> Self {
         Self {
             parser: vt100::Parser::new_with_callbacks(
                 rows.max(MIN_ROWS),
                 cols.max(MIN_COLS),
-                10_000,
+                scrollback_lines,
                 Callbacks::default(),
             ),
             selection: None,
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn split_utf8_combining_wide_and_ansi_keep_their_columns() {
-        let mut term = Terminal::new(2, 8);
+        let mut term = Terminal::new(2, 8, 10_000);
         for byte in "A界e\u{301}\x1b[31mZ".as_bytes() {
             term.process(&[*byte]);
         }
@@ -214,14 +214,14 @@ mod tests {
 
     #[test]
     fn selection_normalizes_wide_cells_and_soft_wraps() {
-        let mut term = Terminal::new(3, 4);
+        let mut term = Terminal::new(3, 4, 10_000);
         term.process("A界BC\r\nD".as_bytes());
         term.selection = Some((Position { row: 1, col: 0 }, Position { row: 0, col: 2 }));
         assert_eq!(term.selected_text(), "界BC");
         assert!(term.selected(0, 1));
         term.selection = Some((Position { row: 1, col: 0 }, Position { row: 2, col: 0 }));
         assert_eq!(term.selected_text(), "C\nD");
-        let mut term = Terminal::new(2, 4);
+        let mut term = Terminal::new(2, 4, 10_000);
         term.process(b"ab  cd");
         term.selection = Some((Position { row: 0, col: 0 }, Position { row: 1, col: 1 }));
         assert_eq!(term.selected_text(), "ab  cd");
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn scrolling_resize_alternate_screen_and_replies() {
-        let mut term = Terminal::new(2, 8);
+        let mut term = Terminal::new(2, 8, 10_000);
         term.process(b"one\r\ntwo\r\nthree");
         term.scroll(1);
         assert!(term.screen().contents().starts_with("one"));
@@ -244,5 +244,15 @@ mod tests {
         assert!(term.resize(0, 0));
         assert_eq!(term.screen().size(), (2, 2));
         term.process("界界界".as_bytes());
+    }
+
+    #[test]
+    fn configured_scrollback_limits_history() {
+        for limit in [0, 1, 3] {
+            let mut term = Terminal::new(2, 8, limit);
+            term.process(b"one\r\ntwo\r\nthree\r\nfour\r\nfive");
+            term.scroll(100);
+            assert_eq!(term.screen().scrollback(), limit);
+        }
     }
 }

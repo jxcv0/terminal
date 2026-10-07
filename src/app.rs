@@ -1,4 +1,5 @@
 use crate::{
+    config::Config,
     graphics::{Frame, Graphics},
     input,
     model::{INITIAL_COLS, INITIAL_ROWS, Terminal},
@@ -19,8 +20,6 @@ use winit::{
     window::{Window, WindowId},
 };
 
-const BLINK: Duration = Duration::from_millis(500);
-
 pub enum UserEvent {
     PtyReady,
     ChildExit(io::Result<ExitStatus>),
@@ -30,6 +29,7 @@ pub enum UserEvent {
 }
 
 pub struct App {
+    config: Config,
     pty: Option<Pty>,
     proxy: EventLoopProxy<UserEvent>,
     window: Option<Arc<Window>>,
@@ -51,9 +51,14 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(pty: Option<Pty>, proxy: EventLoopProxy<UserEvent>, profile: bool) -> Self {
+    pub fn new(
+        pty: Option<Pty>,
+        proxy: EventLoopProxy<UserEvent>,
+        profile: bool,
+        config: Config,
+    ) -> Self {
         let demo = pty.is_none();
-        let mut terminal = Terminal::new(INITIAL_ROWS, INITIAL_COLS);
+        let mut terminal = Terminal::new(INITIAL_ROWS, INITIAL_COLS, config.scrollback_lines);
         if demo {
             terminal.demo();
         }
@@ -63,19 +68,20 @@ impl App {
             window: None,
             graphics: None,
             terminal,
-            view: TerminalView::default(),
+            view: TerminalView::new(&config),
             modifiers: ModifiersState::empty(),
             preedit: String::new(),
             focused: true,
             occluded: false,
             cursor_on: true,
-            next_blink: Instant::now() + BLINK,
+            next_blink: Instant::now() + Duration::from_millis(config.cursor_blink_ms),
             repaint: None,
             input_started: None,
             child_exited: false,
             eof: false,
             demo,
             profile,
+            config,
         }
     }
 
@@ -92,7 +98,7 @@ impl App {
         self.terminal.scroll_to_bottom();
         self.terminal.selection = None;
         self.cursor_on = true;
-        self.next_blink = Instant::now() + BLINK;
+        self.next_blink = Instant::now() + Duration::from_millis(self.config.cursor_blink_ms);
         self.input_started.get_or_insert_with(Instant::now);
         if let Some(pty) = &self.pty
             && let Err(error) = pty.write(bytes)
@@ -213,7 +219,10 @@ impl ApplicationHandler<UserEvent> for App {
                             } else {
                                 "Terminal"
                             })
-                            .with_inner_size(winit::dpi::LogicalSize::new(816.0, 592.0)),
+                            .with_inner_size(winit::dpi::LogicalSize::new(
+                                self.config.window.width,
+                                self.config.window.height,
+                            )),
                     )?,
                 ),
             };
@@ -222,9 +231,10 @@ impl ApplicationHandler<UserEvent> for App {
                 window.clone(),
                 self.proxy.clone(),
                 self.profile,
+                &self.config.font,
             ))?);
             self.window = Some(window);
-            self.view = TerminalView::default();
+            self.view = TerminalView::new(&self.config);
             Ok(())
         })();
         if let Err(error) = result {
@@ -290,7 +300,8 @@ impl ApplicationHandler<UserEvent> for App {
                 self.preedit.clear();
                 self.modifiers = ModifiersState::empty();
                 self.cursor_on = true;
-                self.next_blink = Instant::now() + BLINK;
+                self.next_blink =
+                    Instant::now() + Duration::from_millis(self.config.cursor_blink_ms);
                 self.redraw();
             }
             WindowEvent::Occluded(occluded) => {
@@ -373,13 +384,14 @@ impl ApplicationHandler<UserEvent> for App {
             self.repaint = None;
             self.redraw();
         }
-        let blinking = self.focused
+        let blinking = self.config.cursor_blink_ms != 0
+            && self.focused
             && self.view.focused
             && !self.terminal.screen().hide_cursor()
             && self.terminal.screen().scrollback() == 0;
         if blinking && self.next_blink <= now {
             self.cursor_on = !self.cursor_on;
-            self.next_blink = now + BLINK;
+            self.next_blink = now + Duration::from_millis(self.config.cursor_blink_ms);
             self.redraw();
         }
         let deadline = if blinking {

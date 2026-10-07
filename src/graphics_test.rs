@@ -27,8 +27,8 @@ fn offscreen_renderer() {
         std::fs::create_dir_all("target/terminal-validation").unwrap();
         for (cols, rows) in [(80, 24), (240, 80)] {
             let context = egui::Context::default();
-            crate::view::install_fonts(&context);
-            let mut terminal = Terminal::new(rows, cols);
+            crate::view::install_fonts(&context, &crate::config::Font::default());
+            let mut terminal = Terminal::new(rows, cols, 10_000);
             let mut view = TerminalView::default();
             let mut renderer = egui_wgpu::Renderer::new(
                 &device,
