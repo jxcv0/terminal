@@ -68,13 +68,20 @@ fn main() {
             // close pts fd
             std::mem::drop(pts);
 
-            run_emulator();
+            run_emulator(ptm);
         }
     }
 }
 
 struct App {
+    ptm: File,
     window: Option<Window>,
+}
+
+impl App {
+    fn new(ptm: File) -> Self {
+        Self { ptm, window: None }
+    }
 }
 
 impl ApplicationHandler for App {
@@ -100,9 +107,9 @@ impl ApplicationHandler for App {
     }
 }
 
-fn run_emulator() {
+fn run_emulator(ptm: File) {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Wait);
-    let mut app = App { window: None };
+    let mut app = App::new(ptm);
     event_loop.run_app(&mut app).unwrap();
 }
