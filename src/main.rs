@@ -1,3 +1,4 @@
+use clap::Parser;
 use std::{
     ffi::{CStr, CString},
     fs::{File, OpenOptions},
@@ -55,25 +56,19 @@ fn child_error(mut stderr: &File, operation: &str) -> ! {
     unsafe { libc::_exit(127) }
 }
 
+#[derive(Parser)]
+struct Args {
+    /// Render a fixed sample without starting a shell
+    #[arg(long)]
+    demo: bool,
+
+    /// Log CPU frame preparation, GPU timestamps (if supported), and input-to-present time
+    #[arg(long)]
+    profile: bool,
+}
+
 fn main() {
-    let mut demo = false;
-    let mut profile = false;
-    for argument in std::env::args().skip(1) {
-        match argument.as_str() {
-            "--demo" => demo = true,
-            "--profile" => profile = true,
-            "--help" | "-h" => {
-                println!(
-                    "Usage: terminal [--demo] [--profile]\n\n--demo     Render a fixed sample without starting a shell\n--profile  Log CPU frame preparation, GPU timestamps (if supported), and input-to-present time"
-                );
-                return;
-            }
-            _ => {
-                eprintln!("Unknown argument: {argument}");
-                std::process::exit(2);
-            }
-        }
-    }
+    let Args { demo, profile } = Args::parse();
     let config = config::Config::load().unwrap_or_else(|error| {
         eprintln!("Configuration error: {error}");
         std::process::exit(2);

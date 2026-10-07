@@ -252,11 +252,13 @@ impl ApplicationHandler<UserEvent> for App {
         if self.window.as_ref().is_none_or(|window| window.id() != id) {
             return;
         }
+        // RedrawRequested is drawn below; scheduling another redraw would keep us busy forever.
         if let Some(graphics) = &mut self.graphics
             && graphics
                 .input
                 .on_window_event(&graphics.window, &event)
                 .repaint
+            && !matches!(event, WindowEvent::RedrawRequested)
         {
             graphics.window.request_redraw();
         }
