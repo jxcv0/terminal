@@ -8,10 +8,14 @@ use std::{
     },
     process::ExitStatus,
 };
-use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::window::{Window, WindowId};
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod graphics;
+mod input;
+mod model;
+mod pty;
+mod view;
 
 const PTMX_PATH: &str = "/dev/ptmx";
 
@@ -51,8 +55,31 @@ fn child_error(mut stderr: &File, operation: &str) -> ! {
 }
 
 fn main() {
+    let mut demo = false;
+    let mut profile = false;
+    for argument in std::env::args().skip(1) {
+        match argument.as_str() {
+            "--demo" => demo = true,
+            "--profile" => profile = true,
+            "--help" | "-h" => {
+                println!(
+                    "Usage: terminal [--demo] [--profile]\n\n--demo     Render a fixed sample without starting a shell\n--profile  Log CPU frame preparation, GPU timestamps (if supported), and input-to-present time"
+                );
+                return;
+            }
+            _ => {
+                eprintln!("Unknown argument: {argument}");
+                std::process::exit(2);
+            }
+        }
+    }
+    if demo {
+        run_emulator(None, None, profile);
+        return;
+    }
     let ptm = open_ptm().unwrap();
     let pts = open_pts(&ptm).unwrap();
+    pty::set_size(&ptm, model::INITIAL_ROWS, model::INITIAL_COLS).unwrap();
     let shell = std::env::var("SHELL")
         .ok()
         .filter(|s| !s.is_empty())
@@ -60,6 +87,22 @@ fn main() {
     let shell = CString::new(shell).unwrap();
     let shell_path = shell.as_ptr();
     let argv = [shell_path, std::ptr::null()];
+    // Prepare the child environment before fork; graphics and worker threads
+    // are only initialized in the parent after the shell has been forked.
+    use std::os::unix::ffi::OsStringExt;
+    let mut environment: Vec<CString> = std::env::vars_os()
+        .filter(|(key, _)| key != "TERM" && key != "COLORTERM")
+        .map(|(key, value)| {
+            let mut bytes = key.into_vec();
+            bytes.push(b'=');
+            bytes.extend(value.into_vec());
+            CString::new(bytes).unwrap()
+        })
+        .collect();
+    environment.push(CString::new("TERM=xterm-256color").unwrap());
+    environment.push(CString::new("COLORTERM=truecolor").unwrap());
+    let mut envp: Vec<_> = environment.iter().map(|entry| entry.as_ptr()).collect();
+    envp.push(std::ptr::null());
     // Keep startup errors visible after stderr is redirected to the PTY.
     // The duplicated descriptor is closed automatically on a successful exec.
     let stderr = File::from(std::io::stderr().as_fd().try_clone_to_owned().unwrap());
@@ -81,8 +124,8 @@ fn main() {
                 }
             }
             std::mem::drop(pts);
-            unsafe { libc::execv(shell_path, argv.as_ptr()) };
-            child_error(&stderr, "execv");
+            unsafe { libc::execve(shell_path, argv.as_ptr(), envp.as_ptr()) };
+            child_error(&stderr, "execve");
         }
         -1 => child_error(&stderr, "fork"),
         child_pid => {
@@ -90,45 +133,8 @@ fn main() {
             std::mem::drop(pts);
             std::mem::drop(stderr);
 
-            run_emulator(ptm, child_pid);
+            run_emulator(Some(ptm), Some(child_pid), profile);
         }
-    }
-}
-
-struct App {
-    ptm: File,
-    window: Option<Window>,
-}
-
-impl App {
-    fn new(ptm: File) -> Self {
-        Self { ptm, window: None }
-    }
-}
-
-impl ApplicationHandler<std::io::Result<ExitStatus>> for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.window = Some(
-            event_loop
-                .create_window(Window::default_attributes())
-                .unwrap(),
-        );
-    }
-
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        if let WindowEvent::CloseRequested = event {
-            println!("The close button was pressed; stopping");
-            event_loop.exit();
-        }
-    }
-
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: std::io::Result<ExitStatus>) {
-        match event {
-            Ok(status) if status.success() => (),
-            Ok(status) => eprintln!("Shell exited with {status}"),
-            Err(error) => eprintln!("Failed to wait for shell: {error}"),
-        }
-        event_loop.exit();
     }
 }
 
@@ -145,18 +151,26 @@ fn wait_for_child(child_pid: libc::pid_t) -> std::io::Result<ExitStatus> {
     }
 }
 
-fn run_emulator(ptm: File, child_pid: libc::pid_t) {
+fn run_emulator(ptm: Option<File>, child_pid: Option<libc::pid_t>, profile: bool) {
     let event_loop = EventLoop::with_user_event().build().unwrap();
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
-    std::thread::spawn(move || {
-        let _ = proxy.send_event(wait_for_child(child_pid));
-    });
-    let mut app = App::new(ptm);
+    if let Some(child_pid) = child_pid {
+        let proxy = proxy.clone();
+        std::thread::spawn(move || {
+            let _ = proxy.send_event(app::UserEvent::ChildExit(wait_for_child(child_pid)));
+        });
+    }
+    let pty = ptm.map(|ptm| pty::Pty::new(ptm, proxy.clone()).unwrap());
+    let mut app = app::App::new(pty, proxy, profile);
     event_loop.run_app(&mut app).unwrap();
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::zombie_processes,
+    reason = "wait_for_child reaps these children with libc::waitpid"
+)]
 mod tests {
     use super::*;
     use std::process::Command;
